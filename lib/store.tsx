@@ -354,7 +354,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setVotes((prev) => {
         const existingIndex = prev.findIndex((v) => v.userId === currentUser.id && v.targetId === answerId);
         const newVotes = [...prev];
-        let scoreDelta = value;
+        let scoreDelta: number = value;
         if (existingIndex >= 0) {
           const existing = prev[existingIndex];
           if (existing.value === value) {
