@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Plus } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { AuthGuard } from "@/components/auth-guard";
 import { BottomNav } from "@/components/bottom-nav";
@@ -58,7 +58,6 @@ export default function ClassPage() {
   return (
     <AuthGuard>
       <div className="min-h-screen bg-background pb-20">
-        {/* Header */}
         <header className="sticky top-0 z-40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 border-b border-border">
           <div className="flex items-center h-14 px-4 max-w-4xl mx-auto">
             <Link href="/classes">
@@ -67,14 +66,19 @@ export default function ClassPage() {
                 <span className="sr-only">Back</span>
               </Button>
             </Link>
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <h1 className="font-semibold text-lg truncate">{classInfo.code}</h1>
               <p className="text-xs text-muted-foreground truncate">{classInfo.title}</p>
             </div>
+            <Link href="/ask">
+              <Button size="sm" variant="outline">
+                <Plus className="h-4 w-4 mr-1" />
+                Ask
+              </Button>
+            </Link>
           </div>
         </header>
 
-        {/* Teacher Rating Panel - Mobile (below header when teacher selected) */}
         {selectedTeacher && (
           <div className="lg:hidden border-b border-border bg-muted/30 px-4 py-3">
             <TeacherRatingPanel teacher={selectedTeacher} className="border-0 shadow-none bg-transparent" />
@@ -83,7 +87,6 @@ export default function ClassPage() {
 
         <div className="max-w-4xl mx-auto px-4 py-4 flex gap-6">
           <main className="flex-1 max-w-lg">
-            {/* Teacher Filter */}
             <div className="mb-4">
               <Select value={teacherFilter} onValueChange={setTeacherFilter}>
                 <SelectTrigger className="w-[160px]">
@@ -100,7 +103,6 @@ export default function ClassPage() {
               </Select>
             </div>
 
-            {/* Tabs */}
             <Tabs defaultValue="questions" className="w-full">
               <TabsList className="w-full grid grid-cols-2">
                 <TabsTrigger value="questions">Questions</TabsTrigger>
@@ -133,7 +135,6 @@ export default function ClassPage() {
             </Tabs>
           </main>
 
-          {/* Teacher Rating Panel - Desktop Sidebar */}
           {selectedTeacher && (
             <aside className="hidden lg:block w-72 shrink-0">
               <div className="sticky top-20">
