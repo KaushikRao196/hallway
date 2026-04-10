@@ -11,14 +11,17 @@ interface AuthGuardProps {
 }
 
 export function AuthGuard({ children }: AuthGuardProps) {
-  const { currentUser, isLoading } = useStore();
+  const { currentUser, pendingSetup, isLoading } = useStore();
   const router = useRouter();
 
   useEffect(() => {
-    if (!isLoading && !currentUser) {
+    if (isLoading) return;
+    if (pendingSetup) {
+      router.replace("/onboarding");
+    } else if (!currentUser) {
       router.replace("/login");
     }
-  }, [currentUser, isLoading, router]);
+  }, [currentUser, pendingSetup, isLoading, router]);
 
   if (isLoading) {
     return (

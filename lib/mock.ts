@@ -67,6 +67,7 @@ export interface TeacherRating {
   difficulty: number; // 1-5
   fairness: number; // 1-5
   workload: number; // 1-5
+  comment?: string;
   createdAt: string;
 }
 

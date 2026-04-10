@@ -193,6 +193,11 @@ export default function TeacherDetailPage() {
                               <p className="font-medium">{rating.workload}/5</p>
                             </div>
                           </div>
+                          {rating.comment && (
+                            <p className="text-sm text-foreground/80 mt-3 pt-3 border-t border-border italic">
+                              &ldquo;{rating.comment}&rdquo;
+                            </p>
+                          )}
                         </CardContent>
                       </Card>
                     );

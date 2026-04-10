@@ -56,7 +56,7 @@ function toReport(r: any): Report {
 }
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function toTeacherRating(r: any): TeacherRating {
-  return { id: r.id, teacherId: r.teacher_id, userId: r.user_id, difficulty: r.difficulty, fairness: r.fairness, workload: r.workload, createdAt: r.created_at };
+  return { id: r.id, teacherId: r.teacher_id, userId: r.user_id, difficulty: r.difficulty, fairness: r.fairness, workload: r.workload, comment: r.comment ?? undefined, createdAt: r.created_at };
 }
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function toUser(r: any): User {
@@ -73,6 +73,7 @@ function toSchool(r: any): School {
 
 interface StoreState {
   currentUser: User | null;
+  pendingSetup: { email: string; domain: string } | null;
   school: School;
   classes: Class[];
   teachers: Teacher[];
@@ -87,6 +88,7 @@ interface StoreState {
 interface StoreActions {
   login: () => Promise<void>;
   logout: () => Promise<void>;
+  setupSchool: (name: string) => Promise<void>;
 
   // Questions
   addQuestion: (data: { classId: string; teacherId?: string; title: string; body: string }) => Promise<Question>;
@@ -109,7 +111,7 @@ interface StoreActions {
   deleteTeacher: (id: string, strategy: "nullify" | "delete" | { reassignTo: string }) => Promise<void>;
 
   // Teacher Ratings
-  submitTeacherRating: (teacherId: string, data: { difficulty: number; fairness: number; workload: number }) => Promise<void>;
+  submitTeacherRating: (teacherId: string, data: { difficulty: number; fairness: number; workload: number; comment?: string }) => Promise<void>;
   deleteRating: (ratingId: string) => Promise<void>;
   getTeacherRatingSummary: (teacherId: string) => TeacherRatingSummary | null;
   getUserRatingForTeacher: (teacherId: string) => TeacherRating | null;
@@ -137,6 +139,7 @@ const StoreContext = createContext<(StoreState & StoreActions) | null>(null);
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [pendingSetup, setPendingSetup] = useState<{ email: string; domain: string } | null>(null);
   const [school, setSchool] = useState<School>(mockSchool);
   const [classes, setClasses] = useState<Class[]>([]);
   const [teachers, setTeachers] = useState<Teacher[]>([]);
@@ -153,7 +156,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // 1. Resolve school from email domain
     const domain = email.split("@")[1];
     const { data: schoolRow } = await supabase.from("schools").select("*").eq("domain", domain).single();
-    if (!schoolRow) throw new Error("School not found for domain: " + domain);
+    if (!schoolRow) {
+      setPendingSetup({ email, domain });
+      return;
+    }
+    setPendingSetup(null);
     const resolvedSchool = toSchool(schoolRow);
     setSchool(resolvedSchool);
 
@@ -217,6 +224,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         await loadUserSession(session.user.email);
       } else if (event === "SIGNED_OUT") {
         setCurrentUser(null);
+        setPendingSetup(null);
         setSchool(mockSchool);
         setClasses([]);
         setTeachers([]);
@@ -244,6 +252,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const logout = useCallback(async () => {
     await supabase.auth.signOut();
     setCurrentUser(null);
+    setPendingSetup(null);
     setSchool(mockSchool);
     setClasses([]);
     setTeachers([]);
@@ -253,6 +262,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setReports([]);
     setTeacherRatings([]);
   }, []);
+
+  const setupSchool = useCallback(async (name: string) => {
+    if (!pendingSetup) throw new Error("No pending setup");
+    const { email, domain } = pendingSetup;
+    const schoolId = crypto.randomUUID();
+    const { error } = await supabase.from("schools").insert({ id: schoolId, name, domain });
+    if (error) throw new Error(error.message);
+    await loadUserSession(email);
+  }, [pendingSetup, loadUserSession]);
 
   /* ============ CLASSES CRUD ============ */
 
@@ -440,7 +458,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   /* ============ TEACHER RATINGS ============ */
 
   const submitTeacherRating = useCallback(
-    async (teacherId: string, data: { difficulty: number; fairness: number; workload: number }) => {
+    async (teacherId: string, data: { difficulty: number; fairness: number; workload: number; comment?: string }) => {
       if (!currentUser) throw new Error("Not logged in");
       const existingRating = teacherRatings.find((r) => r.teacherId === teacherId && r.userId === currentUser.id);
       const row = {
@@ -450,6 +468,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         difficulty: data.difficulty,
         fairness: data.fairness,
         workload: data.workload,
+        comment: data.comment ?? null,
       };
       const { data: upserted, error } = await supabase.from("teacher_ratings").upsert(row, { onConflict: "teacher_id,user_id" }).select().single();
       if (error || !upserted) throw new Error(error?.message ?? "Failed to submit rating");
@@ -585,6 +604,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     <StoreContext.Provider
       value={{
         currentUser,
+        pendingSetup,
         school,
         classes,
         teachers,
@@ -596,6 +616,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         isLoading,
         login,
         logout,
+        setupSchool,
         addQuestion,
         updateQuestion,
         deleteQuestion,

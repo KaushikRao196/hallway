@@ -19,6 +19,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { useStore } from "@/lib/store";
 import type { Teacher } from "@/lib/mock";
 
@@ -41,6 +42,7 @@ export function RateTeacherDialog({ teacher, trigger }: RateTeacherDialogProps) 
   const [workload, setWorkload] = useState<string>(
     existingRating?.workload.toString() || ""
   );
+  const [comment, setComment] = useState(existingRating?.comment || "");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async () => {
@@ -52,6 +54,7 @@ export function RateTeacherDialog({ teacher, trigger }: RateTeacherDialogProps) 
         difficulty: parseInt(difficulty),
         fairness: parseInt(fairness),
         workload: parseInt(workload),
+        comment: comment.trim() || undefined,
       });
       setOpen(false);
     } finally {
@@ -141,6 +144,22 @@ export function RateTeacherDialog({ teacher, trigger }: RateTeacherDialogProps) 
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="comment" className="text-sm font-medium">
+              Your thoughts <span className="text-muted-foreground font-normal">(optional)</span>
+            </Label>
+            <Textarea
+              id="comment"
+              placeholder="What should students know about this teacher?"
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              maxLength={500}
+              rows={3}
+              className="resize-none"
+            />
+            <p className="text-xs text-muted-foreground text-right">{comment.length}/500</p>
           </div>
         </div>
 
