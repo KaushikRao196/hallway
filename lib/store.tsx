@@ -1,6 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import { supabase } from "./supabase";
 import {
   User,
   Question,
@@ -13,65 +14,57 @@ import {
   TeacherRating,
   TeacherRatingSummary,
   mockSchool,
-  mockClasses,
-  mockTeachers,
-  mockUsers,
-  initialQuestions,
-  initialAnswers,
-  generateId,
   generateAnonHandle,
 } from "./mock";
 
 /* ------------------------------------------------------------------ */
-/* Persistence helpers                                                 */
+/* DB row → TypeScript mappers                                         */
 /* ------------------------------------------------------------------ */
 
-const STORAGE_KEY = "hallway_store";
-
-interface PersistedState {
-  classes: Class[];
-  teachers: Teacher[];
-  questions: Question[];
-  answers: Answer[];
-  votes: Vote[];
-  reports: Report[];
-  teacherRatings: TeacherRating[];
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function toClass(r: any): Class {
+  return { id: r.id, schoolId: r.school_id, code: r.code, title: r.title };
 }
-
-function loadState(): PersistedState | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw) as PersistedState;
-  } catch {
-    return null;
-  }
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function toTeacher(r: any): Teacher {
+  return { id: r.id, schoolId: r.school_id, name: r.name };
 }
-
-function saveState(state: PersistedState) {
-  if (typeof window === "undefined") return;
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch {
-    // storage full – silently ignore
-  }
-}
-
-/* ------------------------------------------------------------------ */
-/* Seed data (used only on first visit)                                */
-/* ------------------------------------------------------------------ */
-
-function seedState(): PersistedState {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function toQuestion(r: any): Question {
   return {
-    classes: mockClasses,
-    teachers: mockTeachers,
-    questions: initialQuestions,
-    answers: initialAnswers,
-    votes: [],
-    reports: [],
-    teacherRatings: [],
+    id: r.id,
+    userId: r.user_id,
+    schoolId: r.school_id,
+    classId: r.class_id,
+    teacherId: r.teacher_id ?? undefined,
+    title: r.title,
+    body: r.body,
+    createdAt: r.created_at,
   };
+}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function toAnswer(r: any): Answer {
+  return { id: r.id, questionId: r.question_id, userId: r.user_id, body: r.body, score: r.score, createdAt: r.created_at };
+}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function toVote(r: any): Vote {
+  return { userId: r.user_id, targetType: r.target_type as "answer", targetId: r.target_id, value: r.value as 1 | -1 };
+}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function toReport(r: any): Report {
+  return { id: r.id, reporterId: r.reporter_id, targetType: r.target_type as "question" | "answer", targetId: r.target_id, reason: r.reason, createdAt: r.created_at };
+}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function toTeacherRating(r: any): TeacherRating {
+  return { id: r.id, teacherId: r.teacher_id, userId: r.user_id, difficulty: r.difficulty, fairness: r.fairness, workload: r.workload, createdAt: r.created_at };
+}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function toUser(r: any): User {
+  return { id: r.id, anonHandle: r.anon_handle, schoolId: r.school_id, email: r.email };
+}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function toSchool(r: any): School {
+  return { id: r.id, name: r.name, domain: r.domain };
 }
 
 /* ------------------------------------------------------------------ */
@@ -92,13 +85,13 @@ interface StoreState {
 }
 
 interface StoreActions {
-  login: (email: string) => Promise<void>;
-  logout: () => void;
+  login: () => Promise<void>;
+  logout: () => Promise<void>;
 
   // Questions
   addQuestion: (data: { classId: string; teacherId?: string; title: string; body: string }) => Promise<Question>;
-  updateQuestion: (id: string, data: { classId?: string; teacherId?: string; title?: string; body?: string }) => void;
-  deleteQuestion: (id: string) => void;
+  updateQuestion: (id: string, data: { classId?: string; teacherId?: string; title?: string; body?: string }) => Promise<void>;
+  deleteQuestion: (id: string) => Promise<void>;
 
   // Answers
   addAnswer: (questionId: string, body: string) => Promise<Answer>;
@@ -106,18 +99,18 @@ interface StoreActions {
   report: (targetType: "question" | "answer", targetId: string, reason: string) => Promise<void>;
 
   // Classes
-  createClass: (data: { code: string; title: string }) => Class;
-  updateClass: (id: string, data: { code?: string; title?: string }) => void;
-  deleteClass: (id: string, strategy: "nullify" | "delete" | { reassignTo: string }) => void;
+  createClass: (data: { code: string; title: string }) => Promise<Class>;
+  updateClass: (id: string, data: { code?: string; title?: string }) => Promise<void>;
+  deleteClass: (id: string, strategy: "nullify" | "delete" | { reassignTo: string }) => Promise<void>;
 
   // Teachers
-  createTeacher: (data: { name: string }) => Teacher;
-  updateTeacher: (id: string, data: { name?: string }) => void;
-  deleteTeacher: (id: string, strategy: "nullify" | "delete" | { reassignTo: string }) => void;
+  createTeacher: (data: { name: string }) => Promise<Teacher>;
+  updateTeacher: (id: string, data: { name?: string }) => Promise<void>;
+  deleteTeacher: (id: string, strategy: "nullify" | "delete" | { reassignTo: string }) => Promise<void>;
 
   // Teacher Ratings
   submitTeacherRating: (teacherId: string, data: { difficulty: number; fairness: number; workload: number }) => Promise<void>;
-  deleteRating: (ratingId: string) => void;
+  deleteRating: (ratingId: string) => Promise<void>;
   getTeacherRatingSummary: (teacherId: string) => TeacherRatingSummary | null;
   getUserRatingForTeacher: (teacherId: string) => TeacherRating | null;
   getRatingsForTeacher: (teacherId: string) => TeacherRating[];
@@ -138,14 +131,13 @@ interface StoreActions {
 
 const StoreContext = createContext<(StoreState & StoreActions) | null>(null);
 
-const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
 /* ------------------------------------------------------------------ */
 /* Provider                                                            */
 /* ------------------------------------------------------------------ */
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [school, setSchool] = useState<School>(mockSchool);
   const [classes, setClasses] = useState<Class[]>([]);
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -154,136 +146,189 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [reports, setReports] = useState<Report[]>([]);
   const [teacherRatings, setTeacherRatings] = useState<TeacherRating[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [userCache, setUserCache] = useState<Map<string, User>>(new Map());
 
-  // ---- Hydrate from localStorage (or seed) on mount ----
-  useEffect(() => {
-    const stored = loadState();
-    const data = stored ?? seedState();
-    setClasses(data.classes);
-    setTeachers(data.teachers);
-    setQuestions(data.questions);
-    setAnswers(data.answers);
-    setVotes(data.votes);
-    setReports(data.reports);
-    setTeacherRatings(data.teacherRatings);
+  /* ---- Load everything for a signed-in user ---- */
+  const loadUserSession = useCallback(async (email: string) => {
+    // 1. Resolve school from email domain
+    const domain = email.split("@")[1];
+    const { data: schoolRow } = await supabase.from("schools").select("*").eq("domain", domain).single();
+    if (!schoolRow) throw new Error("School not found for domain: " + domain);
+    const resolvedSchool = toSchool(schoolRow);
+    setSchool(resolvedSchool);
 
-    // If first time, persist the seed
-    if (!stored) saveState(data);
-
-    // User session
-    const storedUser = localStorage.getItem("hallway_user");
-    if (storedUser) {
-      try {
-        setCurrentUser(JSON.parse(storedUser));
-      } catch {
-        localStorage.removeItem("hallway_user");
-      }
+    // 2. Upsert user
+    const { data: existingRow } = await supabase.from("users").select("*").eq("email", email).single();
+    let user: User;
+    if (existingRow) {
+      user = toUser(existingRow);
+    } else {
+      const newRow = { id: crypto.randomUUID(), anon_handle: generateAnonHandle(), school_id: resolvedSchool.id, email };
+      const { data: inserted, error } = await supabase.from("users").insert(newRow).select().single();
+      if (error || !inserted) throw new Error(error?.message ?? "Failed to create user");
+      user = toUser(inserted);
     }
+    setCurrentUser(user);
+    setUserCache((prev) => new Map(prev).set(user.id, user));
 
-    setIsLoading(false);
+    // 3. Fetch all school data + user-specific data in one parallel round-trip
+    const [
+      { data: classRows },
+      { data: teacherRows },
+      { data: questionRows },
+      { data: answerRows },
+      { data: ratingRows },
+      { data: voteRows },
+      { data: reportRows },
+    ] = await Promise.all([
+      supabase.from("classes").select("*").eq("school_id", resolvedSchool.id),
+      supabase.from("teachers").select("*").eq("school_id", resolvedSchool.id),
+      supabase.from("questions").select("*").eq("school_id", resolvedSchool.id).order("created_at", { ascending: false }),
+      supabase.from("answers").select("*"),
+      supabase.from("teacher_ratings").select("*"),
+      supabase.from("votes").select("*").eq("user_id", user.id),
+      supabase.from("reports").select("*").eq("reporter_id", user.id),
+    ]);
+
+    if (classRows) setClasses(classRows.map(toClass));
+    if (teacherRows) setTeachers(teacherRows.map(toTeacher));
+    if (questionRows) setQuestions(questionRows.map(toQuestion));
+    if (answerRows) setAnswers(answerRows.map(toAnswer));
+    if (ratingRows) setTeacherRatings(ratingRows.map(toTeacherRating));
+    if (voteRows) setVotes(voteRows.map(toVote));
+    if (reportRows) setReports(reportRows.map(toReport));
   }, []);
 
-  // ---- Persist whenever data changes (skip initial empty state) ----
+  /* ---- Auth listener + session restore ---- */
   useEffect(() => {
-    if (isLoading) return;
-    saveState({ classes, teachers, questions, answers, votes, reports, teacherRatings });
-  }, [classes, teachers, questions, answers, votes, reports, teacherRatings, isLoading]);
+    async function init() {
+      setIsLoading(true);
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user?.email) {
+        await loadUserSession(session.user.email);
+      }
+      setIsLoading(false);
+    }
+
+    init();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === "SIGNED_IN" && session?.user?.email) {
+        await loadUserSession(session.user.email);
+      } else if (event === "SIGNED_OUT") {
+        setCurrentUser(null);
+        setSchool(mockSchool);
+        setClasses([]);
+        setTeachers([]);
+        setQuestions([]);
+        setAnswers([]);
+        setVotes([]);
+        setReports([]);
+        setTeacherRatings([]);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [loadUserSession]);
 
   /* ============ AUTH ============ */
 
-  const login = useCallback(async (email: string) => {
-    setIsLoading(true);
-    await delay(800);
-    let user = mockUsers.find((u) => u.email === email);
-    if (!user) {
-      user = { id: generateId(), anonHandle: generateAnonHandle(), schoolId: mockSchool.id, email };
-    }
-    localStorage.setItem("hallway_user", JSON.stringify(user));
-    setCurrentUser(user);
-    setIsLoading(false);
+  const login = useCallback(async () => {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: `${window.location.origin}/auth/callback` },
+    });
+    if (error) throw error;
   }, []);
 
-  const logout = useCallback(() => {
-    localStorage.removeItem("hallway_user");
+  const logout = useCallback(async () => {
+    await supabase.auth.signOut();
     setCurrentUser(null);
+    setSchool(mockSchool);
+    setClasses([]);
+    setTeachers([]);
+    setQuestions([]);
+    setAnswers([]);
+    setVotes([]);
+    setReports([]);
+    setTeacherRatings([]);
   }, []);
 
   /* ============ CLASSES CRUD ============ */
 
-  const createClass = useCallback(
-    (data: { code: string; title: string }): Class => {
-      const c: Class = { id: generateId(), schoolId: mockSchool.id, code: data.code, title: data.title };
-      setClasses((prev) => [...prev, c]);
-      return c;
-    },
-    []
-  );
+  const createClass = useCallback(async (data: { code: string; title: string }): Promise<Class> => {
+    if (!currentUser) throw new Error("Not logged in");
+    const row = { id: crypto.randomUUID(), school_id: currentUser.schoolId, code: data.code, title: data.title };
+    const { data: inserted, error } = await supabase.from("classes").insert(row).select().single();
+    if (error || !inserted) throw new Error(error?.message ?? "Failed to create class");
+    const cls = toClass(inserted);
+    setClasses((prev) => [...prev, cls]);
+    return cls;
+  }, [currentUser]);
 
-  const updateClass = useCallback(
-    (id: string, data: { code?: string; title?: string }) => {
-      setClasses((prev) =>
-        prev.map((c) =>
-          c.id === id ? { ...c, ...(data.code !== undefined && { code: data.code }), ...(data.title !== undefined && { title: data.title }) } : c
-        )
-      );
-    },
-    []
-  );
+  const updateClass = useCallback(async (id: string, data: { code?: string; title?: string }) => {
+    const { error } = await supabase.from("classes").update(data).eq("id", id);
+    if (error) throw new Error(error.message);
+    setClasses((prev) => prev.map((c) => (c.id === id ? { ...c, ...data } : c)));
+  }, []);
 
   const deleteClass = useCallback(
-    (id: string, strategy: "nullify" | "delete" | { reassignTo: string }) => {
-      setClasses((prev) => prev.filter((c) => c.id !== id));
+    async (id: string, strategy: "nullify" | "delete" | { reassignTo: string }) => {
       if (strategy === "delete") {
-        setQuestions((prev) => prev.filter((q) => q.classId !== id));
+        const { data: qs } = await supabase.from("questions").select("id").eq("class_id", id);
+        if (qs && qs.length > 0) {
+          await supabase.from("questions").delete().eq("class_id", id);
+          const deletedIds = qs.map((q) => q.id);
+          setQuestions((prev) => prev.filter((q) => !deletedIds.includes(q.id)));
+          setAnswers((prev) => prev.filter((a) => !deletedIds.includes(a.questionId)));
+        }
       } else if (strategy === "nullify") {
-        setQuestions((prev) =>
-          prev.map((q) => (q.classId === id ? { ...q, classId: "__deleted__" } : q))
-        );
+        await supabase.from("questions").delete().eq("class_id", id);
+        setQuestions((prev) => prev.filter((q) => q.classId !== id));
       } else {
-        setQuestions((prev) =>
-          prev.map((q) => (q.classId === id ? { ...q, classId: strategy.reassignTo } : q))
-        );
+        await supabase.from("questions").update({ class_id: strategy.reassignTo }).eq("class_id", id);
+        setQuestions((prev) => prev.map((q) => (q.classId === id ? { ...q, classId: strategy.reassignTo } : q)));
       }
+      await supabase.from("classes").delete().eq("id", id);
+      setClasses((prev) => prev.filter((c) => c.id !== id));
     },
     []
   );
 
   /* ============ TEACHERS CRUD ============ */
 
-  const createTeacher = useCallback(
-    (data: { name: string }): Teacher => {
-      const t: Teacher = { id: generateId(), schoolId: mockSchool.id, name: data.name };
-      setTeachers((prev) => [...prev, t]);
-      return t;
-    },
-    []
-  );
+  const createTeacher = useCallback(async (data: { name: string }): Promise<Teacher> => {
+    if (!currentUser) throw new Error("Not logged in");
+    const row = { id: crypto.randomUUID(), school_id: currentUser.schoolId, name: data.name };
+    const { data: inserted, error } = await supabase.from("teachers").insert(row).select().single();
+    if (error || !inserted) throw new Error(error?.message ?? "Failed to create teacher");
+    const teacher = toTeacher(inserted);
+    setTeachers((prev) => [...prev, teacher]);
+    return teacher;
+  }, [currentUser]);
 
-  const updateTeacher = useCallback(
-    (id: string, data: { name?: string }) => {
-      setTeachers((prev) =>
-        prev.map((t) => (t.id === id ? { ...t, ...(data.name !== undefined && { name: data.name }) } : t))
-      );
-    },
-    []
-  );
+  const updateTeacher = useCallback(async (id: string, data: { name?: string }) => {
+    const { error } = await supabase.from("teachers").update(data).eq("id", id);
+    if (error) throw new Error(error.message);
+    setTeachers((prev) => prev.map((t) => (t.id === id ? { ...t, ...data } : t)));
+  }, []);
 
   const deleteTeacher = useCallback(
-    (id: string, strategy: "nullify" | "delete" | { reassignTo: string }) => {
-      setTeachers((prev) => prev.filter((t) => t.id !== id));
-      // Clean up ratings
+    async (id: string, strategy: "nullify" | "delete" | { reassignTo: string }) => {
+      await supabase.from("teacher_ratings").delete().eq("teacher_id", id);
       setTeacherRatings((prev) => prev.filter((r) => r.teacherId !== id));
       if (strategy === "delete") {
+        await supabase.from("questions").delete().eq("teacher_id", id);
         setQuestions((prev) => prev.filter((q) => q.teacherId !== id));
       } else if (strategy === "nullify") {
-        setQuestions((prev) =>
-          prev.map((q) => (q.teacherId === id ? { ...q, teacherId: undefined } : q))
-        );
+        await supabase.from("questions").update({ teacher_id: null }).eq("teacher_id", id);
+        setQuestions((prev) => prev.map((q) => (q.teacherId === id ? { ...q, teacherId: undefined } : q)));
       } else {
-        setQuestions((prev) =>
-          prev.map((q) => (q.teacherId === id ? { ...q, teacherId: strategy.reassignTo } : q))
-        );
+        await supabase.from("questions").update({ teacher_id: strategy.reassignTo }).eq("teacher_id", id);
+        setQuestions((prev) => prev.map((q) => (q.teacherId === id ? { ...q, teacherId: strategy.reassignTo } : q)));
       }
+      await supabase.from("teachers").delete().eq("id", id);
+      setTeachers((prev) => prev.filter((t) => t.id !== id));
     },
     []
   );
@@ -293,17 +338,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const addQuestion = useCallback(
     async (data: { classId: string; teacherId?: string; title: string; body: string }) => {
       if (!currentUser) throw new Error("Not logged in");
-      await delay(300);
-      const question: Question = {
-        id: generateId(),
-        userId: currentUser.id,
-        schoolId: currentUser.schoolId,
-        classId: data.classId,
-        teacherId: data.teacherId,
+      const row = {
+        id: crypto.randomUUID(),
+        user_id: currentUser.id,
+        school_id: currentUser.schoolId,
+        class_id: data.classId,
+        teacher_id: data.teacherId ?? null,
         title: data.title,
         body: data.body,
-        createdAt: new Date().toISOString(),
       };
+      const { data: inserted, error } = await supabase.from("questions").insert(row).select().single();
+      if (error || !inserted) throw new Error(error?.message ?? "Failed to post question");
+      const question = toQuestion(inserted);
       setQuestions((prev) => [question, ...prev]);
       return question;
     },
@@ -311,36 +357,34 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   );
 
   const updateQuestion = useCallback(
-    (id: string, data: { classId?: string; teacherId?: string; title?: string; body?: string }) => {
-      setQuestions((prev) =>
-        prev.map((q) => (q.id === id ? { ...q, ...data } : q))
-      );
+    async (id: string, data: { classId?: string; teacherId?: string; title?: string; body?: string }) => {
+      const dbData: Record<string, unknown> = {};
+      if (data.classId !== undefined) dbData.class_id = data.classId;
+      if (data.teacherId !== undefined) dbData.teacher_id = data.teacherId;
+      if (data.title !== undefined) dbData.title = data.title;
+      if (data.body !== undefined) dbData.body = data.body;
+      const { error } = await supabase.from("questions").update(dbData).eq("id", id);
+      if (error) throw new Error(error.message);
+      setQuestions((prev) => prev.map((q) => (q.id === id ? { ...q, ...data } : q)));
     },
     []
   );
 
-  const deleteQuestion = useCallback(
-    (id: string) => {
-      setQuestions((prev) => prev.filter((q) => q.id !== id));
-      setAnswers((prev) => prev.filter((a) => a.questionId !== id));
-    },
-    []
-  );
+  const deleteQuestion = useCallback(async (id: string) => {
+    await supabase.from("questions").delete().eq("id", id);
+    setQuestions((prev) => prev.filter((q) => q.id !== id));
+    setAnswers((prev) => prev.filter((a) => a.questionId !== id));
+  }, []);
 
   /* ============ ANSWERS + VOTES + REPORTS ============ */
 
   const addAnswer = useCallback(
     async (questionId: string, body: string) => {
       if (!currentUser) throw new Error("Not logged in");
-      await delay(300);
-      const answer: Answer = {
-        id: generateId(),
-        questionId,
-        userId: currentUser.id,
-        body,
-        score: 0,
-        createdAt: new Date().toISOString(),
-      };
+      const row = { id: crypto.randomUUID(), question_id: questionId, user_id: currentUser.id, body, score: 0 };
+      const { data: inserted, error } = await supabase.from("answers").insert(row).select().single();
+      if (error || !inserted) throw new Error(error?.message ?? "Failed to post answer");
+      const answer = toAnswer(inserted);
       setAnswers((prev) => [answer, ...prev]);
       return answer;
     },
@@ -350,38 +394,45 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const vote = useCallback(
     async (answerId: string, value: 1 | -1) => {
       if (!currentUser) throw new Error("Not logged in");
-      await delay(100);
-      setVotes((prev) => {
-        const existingIndex = prev.findIndex((v) => v.userId === currentUser.id && v.targetId === answerId);
-        const newVotes = [...prev];
-        let scoreDelta: number = value;
-        if (existingIndex >= 0) {
-          const existing = prev[existingIndex];
-          if (existing.value === value) {
-            newVotes.splice(existingIndex, 1);
-            scoreDelta = -value;
-          } else {
-            newVotes[existingIndex] = { ...existing, value };
-            scoreDelta = value * 2;
-          }
+
+      const existingIndex = votes.findIndex((v) => v.userId === currentUser.id && v.targetId === answerId);
+      const existing = existingIndex >= 0 ? votes[existingIndex] : null;
+      let scoreDelta: number;
+      let newVotes: Vote[];
+
+      if (existing) {
+        if (existing.value === value) {
+          scoreDelta = -value;
+          newVotes = votes.filter((_, i) => i !== existingIndex);
+          await supabase.from("votes").delete().eq("user_id", currentUser.id).eq("target_id", answerId);
         } else {
-          newVotes.push({ userId: currentUser.id, targetType: "answer", targetId: answerId, value });
+          scoreDelta = value * 2;
+          newVotes = votes.map((v, i) => (i === existingIndex ? { ...v, value } : v));
+          await supabase.from("votes").update({ value }).eq("user_id", currentUser.id).eq("target_id", answerId);
         }
-        setAnswers((prevAnswers) =>
-          prevAnswers.map((a) => (a.id === answerId ? { ...a, score: a.score + scoreDelta } : a))
-        );
-        return newVotes;
-      });
+      } else {
+        scoreDelta = value;
+        newVotes = [...votes, { userId: currentUser.id, targetType: "answer", targetId: answerId, value }];
+        await supabase.from("votes").insert({ user_id: currentUser.id, target_type: "answer", target_id: answerId, value });
+      }
+
+      setVotes(newVotes);
+      setAnswers((prev) => prev.map((a) => (a.id === answerId ? { ...a, score: a.score + scoreDelta } : a)));
+      const currentAnswer = answers.find((a) => a.id === answerId);
+      if (currentAnswer) {
+        await supabase.from("answers").update({ score: currentAnswer.score + scoreDelta }).eq("id", answerId);
+      }
     },
-    [currentUser]
+    [currentUser, votes, answers]
   );
 
   const report = useCallback(
     async (targetType: "question" | "answer", targetId: string, reason: string) => {
       if (!currentUser) throw new Error("Not logged in");
-      await delay(200);
-      const newReport: Report = { id: generateId(), reporterId: currentUser.id, targetType, targetId, reason, createdAt: new Date().toISOString() };
-      setReports((prev) => [...prev, newReport]);
+      const row = { id: crypto.randomUUID(), reporter_id: currentUser.id, target_type: targetType, target_id: targetId, reason };
+      const { data: inserted, error } = await supabase.from("reports").insert(row).select().single();
+      if (error || !inserted) throw new Error(error?.message ?? "Failed to submit report");
+      setReports((prev) => [...prev, toReport(inserted)]);
     },
     [currentUser]
   );
@@ -391,30 +442,33 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const submitTeacherRating = useCallback(
     async (teacherId: string, data: { difficulty: number; fairness: number; workload: number }) => {
       if (!currentUser) throw new Error("Not logged in");
-      await delay(200);
+      const existingRating = teacherRatings.find((r) => r.teacherId === teacherId && r.userId === currentUser.id);
+      const row = {
+        id: existingRating?.id ?? crypto.randomUUID(),
+        teacher_id: teacherId,
+        user_id: currentUser.id,
+        difficulty: data.difficulty,
+        fairness: data.fairness,
+        workload: data.workload,
+      };
+      const { data: upserted, error } = await supabase.from("teacher_ratings").upsert(row, { onConflict: "teacher_id,user_id" }).select().single();
+      if (error || !upserted) throw new Error(error?.message ?? "Failed to submit rating");
+      const rating = toTeacherRating(upserted);
       setTeacherRatings((prev) => {
-        const existingIndex = prev.findIndex((r) => r.teacherId === teacherId && r.userId === currentUser.id);
-        const rating: TeacherRating = {
-          id: existingIndex >= 0 ? prev[existingIndex].id : generateId(),
-          teacherId,
-          userId: currentUser.id,
-          difficulty: data.difficulty,
-          fairness: data.fairness,
-          workload: data.workload,
-          createdAt: new Date().toISOString(),
-        };
-        if (existingIndex >= 0) {
-          const newRatings = [...prev];
-          newRatings[existingIndex] = rating;
-          return newRatings;
+        const idx = prev.findIndex((r) => r.teacherId === teacherId && r.userId === currentUser.id);
+        if (idx >= 0) {
+          const next = [...prev];
+          next[idx] = rating;
+          return next;
         }
         return [...prev, rating];
       });
     },
-    [currentUser]
+    [currentUser, teacherRatings]
   );
 
-  const deleteRating = useCallback((ratingId: string) => {
+  const deleteRating = useCallback(async (ratingId: string) => {
+    await supabase.from("teacher_ratings").delete().eq("id", ratingId);
     setTeacherRatings((prev) => prev.filter((r) => r.id !== ratingId));
   }, []);
 
@@ -427,7 +481,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const avgDifficulty = ratings.reduce((sum, r) => sum + r.difficulty, 0) / ratings.length;
       const avgFairness = ratings.reduce((sum, r) => sum + r.fairness, 0) / ratings.length;
       const avgWorkload = ratings.reduce((sum, r) => sum + r.workload, 0) / ratings.length;
-      const overallScore = ((avgDifficulty + avgFairness + avgWorkload) / 3) * 2;
+      // Higher difficulty and workload = harder teacher = lower score
+      // Higher fairness = better teacher = higher score
+      // Scale: invert difficulty and workload (6 - x so 5→1, 1→5), keep fairness as-is, average out of 5, scale to 10
+      const overallScore = (((6 - avgDifficulty) + avgFairness + (6 - avgWorkload)) / 3) * 2;
       return {
         teacherId,
         avgDifficulty: Math.round(avgDifficulty * 10) / 10,
@@ -443,15 +500,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const getUserRatingForTeacher = useCallback(
     (teacherId: string): TeacherRating | null => {
       if (!currentUser) return null;
-      return teacherRatings.find((r) => r.teacherId === teacherId && r.userId === currentUser.id) || null;
+      return teacherRatings.find((r) => r.teacherId === teacherId && r.userId === currentUser.id) ?? null;
     },
     [currentUser, teacherRatings]
   );
 
   const getRatingsForTeacher = useCallback(
-    (teacherId: string): TeacherRating[] => {
-      return teacherRatings.filter((r) => r.teacherId === teacherId);
-    },
+    (teacherId: string): TeacherRating[] => teacherRatings.filter((r) => r.teacherId === teacherId),
     [teacherRatings]
   );
 
@@ -472,8 +527,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const getTopAnswersByClass = useCallback(
     (classId: string) => {
-      const classQuestionIds = questions.filter((q) => q.classId === classId).map((q) => q.id);
-      return answers.filter((a) => classQuestionIds.includes(a.questionId)).sort((a, b) => b.score - a.score).slice(0, 10);
+      const ids = new Set(questions.filter((q) => q.classId === classId).map((q) => q.id));
+      return answers.filter((a) => ids.has(a.questionId)).sort((a, b) => b.score - a.score).slice(0, 10);
     },
     [questions, answers]
   );
@@ -481,8 +536,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const getUserVote = useCallback(
     (answerId: string) => {
       if (!currentUser) return 0;
-      const v = votes.find((v) => v.userId === currentUser.id && v.targetId === answerId);
-      return v?.value ?? 0;
+      return votes.find((v) => v.userId === currentUser.id && v.targetId === answerId)?.value ?? 0;
     },
     [currentUser, votes]
   );
@@ -498,8 +552,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   );
 
   const getUserById = useCallback(
-    (userId: string) => mockUsers.find((u) => u.id === userId),
-    []
+    (userId: string): User | undefined => {
+      const cached = userCache.get(userId);
+      if (cached) return cached;
+      supabase.from("users").select("*").eq("id", userId).single().then(({ data }) => {
+        if (data) setUserCache((prev) => new Map(prev).set(userId, toUser(data)));
+      });
+      return undefined;
+    },
+    [userCache]
   );
 
   const getQuestionById = useCallback(
@@ -524,7 +585,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     <StoreContext.Provider
       value={{
         currentUser,
-        school: mockSchool,
+        school,
         classes,
         teachers,
         questions,

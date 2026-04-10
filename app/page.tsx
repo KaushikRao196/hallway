@@ -66,7 +66,7 @@ export default function LandingPage() {
             Anonymous advice from students who've actually taken the class
           </h1>
           <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto mb-8 text-pretty leading-relaxed">
-            Get insider knowledge about teachers, workloads, and grading that only upperclassmen know. 
+            Get insider knowledge about teachers, workloads, and grading that only upperclassmen know.
             Make better academic decisions before your schedule locks.
           </p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
@@ -132,8 +132,8 @@ export default function LandingPage() {
             What Hallway is NOT for
           </h2>
           <p className="text-muted-foreground text-sm leading-relaxed">
-            Generic questions like "What is AP Environmental Science?" or "Explain photosynthesis" 
-            don't belong here. Those answers are a Google search away. Hallway is for the stuff 
+            Generic questions like "What is AP Environmental Science?" or "Explain photosynthesis"
+            don't belong here. Those answers are a Google search away. Hallway is for the stuff
             only someone who took the class would know.
           </p>
         </div>

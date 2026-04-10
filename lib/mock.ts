@@ -107,9 +107,9 @@ export function formatTimeAgo(dateString: string): string {
 
 // Mock data
 export const mockSchool: School = {
-  id: "school-1",
-  name: "Irving High School",
-  domain: "irving.edu",
+  id: "school-2",
+  name: "Coppell High School",
+  domain: "coppellisd.com",
 };
 
 export const mockClasses: Class[] = [

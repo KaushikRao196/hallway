@@ -51,7 +51,7 @@ export default function AskPage() {
     try {
       const question = await addQuestion({
         classId,
-        teacherId: teacherId || undefined,
+        teacherId: teacherId && teacherId !== "none" ? teacherId : undefined,
         title: title.trim(),
         body: body.trim(),
       });
