@@ -63,7 +63,7 @@ export default function FeedPage() {
       <div className="min-h-screen bg-background pb-20">
         <TopHeader />
 
-        <main className="max-w-lg mx-auto px-4 py-4">
+        <main className="max-w-3xl mx-auto px-4 py-4">
           <FiltersBar
             search={search}
             onSearchChange={setSearch}

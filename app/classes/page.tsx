@@ -43,7 +43,7 @@ export default function ClassesPage() {
       <div className="min-h-screen bg-background pb-20">
         <TopHeader />
 
-        <main className="max-w-lg mx-auto px-4 py-4">
+        <main className="max-w-3xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-semibold text-lg">All Classes</h2>
             <Button size="sm" onClick={handleAdd}>

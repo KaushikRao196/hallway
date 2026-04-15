@@ -67,7 +67,7 @@ export default function AskPage() {
       <div className="min-h-screen bg-background pb-20">
         {/* Header */}
         <header className="sticky top-0 z-40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 border-b border-border">
-          <div className="flex items-center h-14 px-4 max-w-lg mx-auto">
+          <div className="flex items-center h-14 px-4 max-w-3xl mx-auto">
             <Link href="/feed">
               <Button variant="ghost" size="icon" className="h-8 w-8 mr-2">
                 <ArrowLeft className="h-5 w-5" />
@@ -78,7 +78,7 @@ export default function AskPage() {
           </div>
         </header>
 
-        <main className="max-w-lg mx-auto px-4 py-4">
+        <main className="max-w-3xl mx-auto px-4 py-4">
           <Card>
             <CardHeader>
               <CardTitle className="text-lg">What do you need help with?</CardTitle>
