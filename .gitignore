@@ -42,3 +42,7 @@ next-env.d.ts
 
 # editor
 .vscode/
+
+# claude
+CLAUDE.md
+.claude/

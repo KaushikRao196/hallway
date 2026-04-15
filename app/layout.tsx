@@ -10,7 +10,6 @@ const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 export const metadata: Metadata = {
   title: 'Hallway - Anonymous School Q&A',
   description: 'Ask questions and get help from classmates anonymously',
-  generator: 'v0.app',
 }
 
 export const viewport: Viewport = {
